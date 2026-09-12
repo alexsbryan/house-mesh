@@ -22,7 +22,6 @@ import urllib.error
 import urllib.request
 
 DAEMON = os.environ.get("SVRN_DAEMON", "http://127.0.0.1:9741")
-TOKENS = os.path.expanduser("~/.house-mesh/tokens.json")
 
 
 def fanout(path, peers=None, headers=None, timeout_ms=10000):
@@ -59,15 +58,6 @@ def fanout(path, peers=None, headers=None, timeout_ms=10000):
                  f"try:  svrn daemon start")
 
 
-def tokens():
-    """Per-peer Jellyfin API keys. Keys are per-server, so one header can't do."""
-    try:
-        with open(TOKENS) as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return {}
-
-
 def check():
     """Prove the mesh works, before anyone has set up an API key."""
     for row in fanout("/System/Info/Public"):
@@ -80,28 +70,26 @@ def check():
 
 
 def library():
-    """Everyone's movies, merged by IMDb id, attributed to whoever has a copy."""
-    have, absent = collections.defaultdict(list), []
-    keys = tokens()
-    if not keys:
-        print(f"no {TOKENS} -- see the README's authentication section\n")
+    """Everyone's movies, merged by IMDb id, attributed to whoever has a copy.
 
-    # One call per peer, because Jellyfin keys are per-server.
-    for peer, key in keys.items():
-        rows = fanout(
-            "/Items?Recursive=true&IncludeItemTypes=Movie&fields=ProviderIds",
-            peers=[peer],
-            headers={"Accept": "application/json", "X-Emby-Token": key},
-        )
-        for row in rows:
-            if row["verdict"] != "served":
-                absent.append((row["name"], row["reason"]))
-                continue
-            if row["truncated"]:
-                print(f"  note: {row['name']}'s catalogue was cut at the 4 MiB cap")
-            for item in json.loads(row["body"]).get("Items", []):
-                key_id = item.get("ProviderIds", {}).get("Imdb") or item["Name"]
-                have[key_id].append((row["name"], item["Id"], item["Name"]))
+    One request for the whole house. You hold nobody's credentials: each
+    person's daemon adds their own key on the way to their own server.
+    """
+    have, absent = collections.defaultdict(list), []
+    rows = fanout("/Items?Recursive=true&IncludeItemTypes=Movie&fields=ProviderIds")
+    for row in rows:
+        if row["verdict"] != "served":
+            absent.append((row["name"], row["reason"]))
+            continue
+        if row["status"] == 401:
+            absent.append((row["name"], "their server refused - no key declared "
+                                        "(see the README's authentication section)"))
+            continue
+        if row["truncated"]:
+            print(f"  note: {row['name']}'s catalogue was cut at the 4 MiB cap")
+        for item in json.loads(row["body"]).get("Items", []):
+            key_id = item.get("ProviderIds", {}).get("Imdb") or item["Name"]
+            have[key_id].append((row["name"], item["Id"], item["Name"]))
     return have, absent
 
 

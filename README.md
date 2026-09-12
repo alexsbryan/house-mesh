@@ -93,7 +93,8 @@ watching someone's face for.
 
 `library.py` merges everyone's catalogue by IMDb id and prints who has what.
 Titles held by more than one person list every holder, so you play from whoever
-is awake.
+is awake. You hold no keys; each person's own daemon authenticates to their own
+server.
 
 ```sh
 python3 library.py check      # no auth needed, proves the mesh works
@@ -101,26 +102,29 @@ python3 library.py list       # the merged library
 python3 library.py play <peer> <item-id>
 ```
 
-### The authentication bit, honestly
+### Authentication: you don't share keys
 
-Jellyfin's `/Items` needs an API key, and keys are per-server — so one header
-cannot authenticate you to twenty-five different Jellyfins. `library.py` handles
-this by asking each person's server separately with that person's key, read from
-`~/.house-mesh/tokens.json`:
+You don't. Jellyfin API keys are per-server, so sharing them around a house was
+always the wrong shape — twenty-five people each holding twenty-four other
+people's credentials.
 
-```json
-{ "alex": "abc123...", "sam": "def456..." }
+Instead you declare your own key once, on your own machine, and your daemon adds
+it to requests on their way to *your* Jellyfin. It is added after the caller has
+been admitted as a member, on your side of the wire. Nobody else ever holds it,
+and a viewer who sends a token of their own gets it discarded — yours displaces
+theirs, so exactly one reaches your server and it is the one you chose.
+
+```sh
+# Dashboard -> API Keys in Jellyfin, then:
+printf '%s' "$KEY" | svrn mesh media declare x-emby-token
+svrn daemon reload
 ```
 
-Each person generates one in Jellyfin under Dashboard → API Keys and shares it
-with the house. It works, and it is the annoying part of this repo.
-
-**The better answer, if someone wants a real project:** your daemon already hands
-your media server the caller's verified identity as an `X-Mesh-Member` header,
-with any forged one stripped first. A twenty-line proxy sitting between the
-bridge and your Jellyfin could read that header and add *your own* token, so
-nobody ever shares a key with anybody. That is a genuinely good afternoon and it
-would delete this whole section.
+The value is read from stdin on purpose, so it never lands in your shell
+history. It is stored 0600 and never printed back — `svrn mesh media declare
+--list` shows which headers are set, never what they are. Nothing goes in
+`config.toml`, deliberately, so the key never rides along with anything that
+gets shared, synced, backed up, or gossiped to a peer.
 
 ## What to build next
 
