@@ -116,9 +116,18 @@ theirs, so exactly one reaches your server and it is the one you chose.
 
 ```sh
 # Dashboard -> API Keys in Jellyfin, then:
-printf '%s' "$KEY" | svrn mesh media declare x-emby-token
+printf 'MediaBrowser Token="%s"' "$KEY" | svrn mesh media declare authorization
 svrn daemon reload
 ```
+
+`authorization` is the header name because that is the only one Jellyfin 12
+answers to: probed 2026-09-12 against a live 12.0.0, `X-Emby-Token`,
+`X-MediaBrowser-Token` and `?api_key=` all returned 401 on `/Items` and only
+`Authorization` returned 200, and its OpenAPI document declares exactly one
+security scheme (`apiKey`, in header, named `Authorization`). On a Jellyfin 10
+`x-emby-token` with the bare key is the spelling; the declaration is a filename
+either way, so following the change is a rename on the machine that holds the
+key rather than an upgrade everyone has to take.
 
 The value is read from stdin on purpose, so it never lands in your shell
 history. It is stored 0600 and never printed back — `svrn mesh media declare
