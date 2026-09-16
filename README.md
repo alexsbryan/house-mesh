@@ -1,230 +1,285 @@
 # house-mesh
 
-Any HTTP server running on your laptop can be reached by everyone else in the
-house, by name, with the caller's verified identity already attached to the
-request. No port forwarded, no VPN, no login page, no deploy step, and no box
-that somebody owns and gets blamed for at 11pm.
+Your laptop stays your laptop. The people you trust can reach the things you
+choose to share, by name, with their verified identity already attached.
 
-That is the rule. Media is the example, because everyone in the house already
-runs a Jellyfin and the payoff needs no explaining: the house library becomes
-the union of what everyone already has, and nothing gets copied anywhere. But
-the machinery underneath it does not know what a film is. It carries the chore
-rotation, the 3D printer queue, and the thing you write at 1am the same way.
+No central cabinet for everyone's files. No port forwarding. No VPN. No login
+page. No deploy step.
 
-This repo is two files — these instructions and `library.py`, about ninety lines
-that merge everyone's Jellyfin catalogue into one list. `library.py` is not the
-product. It is a worked example of the one thing the substrate deliberately
-will not do for you, and it is short so you can see how little there is to it.
+This is a small example of a larger idea:
 
-## Setup
+- **The hardware mesh is the workshop's hallways.** Routers and wireless links
+  let machines in different rooms reach one another.
+- **Commonwealth is the trusted messenger and shared notebook.** It checks who
+  is asking, carries requests, and keeps the group's record consistent.
+- **Your app is your workbench.** It owns its data and decides what that data
+  means. A chore list, media server, printer queue, or experiment can use the
+  same messenger.
 
-One person needs a machine with a GPU. Everyone else downloads no models.
+The word **rail** means the dependable shared software channel underneath the
+apps. It is not another physical network. The point is to make the shared
+workshop a normal place to run an app, not a special remote-inference feature.
 
-The GPU box, once:
+## See the idea in five minutes
 
-```sh
-curl -fsSL https://svrnme.sh/install.sh | sh
-svrn setup                      # downloads models, this is the slow one
-svrn mesh create                # then `svrn mesh rotate` prints the join link
-```
-
-Everyone else, about two minutes:
+Install the same prebuilt `svrn` command on each machine. Nobody clones this
+repository or builds Rust.
 
 ```sh
 curl -fsSL https://svrnme.sh/install.sh | sh
-svrn setup --terminal http://<the-gpu-box>:9741    # downloads NOTHING
-svrn mesh join '<the join link>'
 ```
 
-`--terminal` writes no `[models]` section and pulls no model files. It routes
-chat and embeddings to the GPU box and otherwise makes you a full member. The
-media federation below keeps working when the GPU box is down.
-
-## Publish something
-
-Whatever is listening on a localhost port:
+For a house that will share inference, one person sets up the machine with the
+GPU:
 
 ```sh
-svrn publish chores 5000        # durable; writes one config entry
-svrn publish                    # what am I publishing
-svrn unpublish chores
+svrn setup
+svrn mesh create
+svrn mesh rotate                    # read the join key out to the room
 ```
 
-For something you are only running right now, skip the config entry entirely:
+Everyone else can use that machine for inference without downloading models:
 
 ```sh
-svrn run --as chores -- python app.py
+svrn setup --terminal http://<the-gpu-box>:9741
+svrn mesh join '<the join key>'
 ```
 
-That publishes for as long as the command runs and leaves nothing behind — no
-line to forget, and no `connection refused` row in the house's fan-out six
-months from now.
+The app and media demos keep working when the GPU box is down. The GPU is one
+workbench, not the house's central cabinet.
 
-Either way, housemates reach it at `svrn mesh app <you> chores`, and their
-requests arrive with the name stripped from the path: your app serves `/tasks`,
-not `/chores/tasks`. Use relative URLs for assets, which a one-file Flask app
-does anyway.
+## First demo: an app with no login page
 
-## What your app is handed
+Start this repository's tiny example on one laptop:
 
-Every request that reaches you carries three headers your daemon verified in
-the connection handshake:
-
+```sh
+svrn run --as chores -- python3 chores.py
 ```
-X-Mesh-Member: LittleMac
+
+The command runs the app, gives it a free localhost port, and publishes it only
+while it is running. No config file is changed and no daemon restart is needed.
+
+On another member's machine:
+
+```sh
+svrn mesh app <publisher> chores
+```
+
+This prints a URL, probes it through the mesh, and is ready to paste into a
+browser. The app is still running on the publisher's laptop.
+
+The app sees the caller as ordinary HTTP headers:
+
+```text
+X-Mesh-Member: Alex
 X-Mesh-Node:   node-44ae7614
 X-Mesh-Pubkey: 8f2c…
 ```
 
-A client cannot forge them — your daemon strips any copy it was sent and adds
-the ones it proved. This is why there is no users table and no login page: the
-question "who is asking" is answered before your code runs. Read the header.
+The caller did not provide these values. The daemon proved them during the
+connection handshake, removes any client-supplied copies, and adds the values
+it verified. That is why `chores.py` can say hello by name without a users table
+or OAuth flow.
 
-Who may reach your apps is `[iroh] app_allow`, empty by default meaning every
-member, and it is separate from `media_allow` — publishing a print queue to the
-house does not open your film library.
+The app still serves its own paths. A request for `chores /tasks` arrives at
+the app as `/tasks`, not `/chores/tasks`; use relative URLs for CSS and other
+assets.
 
-## Media is its own route, for one reason
+## The useful interface: one or everyone
 
-Jellyfin gets a config line rather than `svrn publish`:
+There are two questions, expressed by one app interface:
+
+```sh
+# Reach one person's workbench.
+svrn mesh app <person> chores
+
+# Ask every publisher of that workbench the same question.
+svrn mesh app fanout chores /
+```
+
+The second command returns one attributed row per publisher. A row says what
+the app answered, or why it could not answer:
+
+```text
+Alex    served       200
+Mira    served       200
+Dave    never_asked  laptop asleep
+```
+
+That last row is not an error to hide. Laptops close. A house app should render
+partial answers rather than pretending an absent machine said nothing.
+
+For a JSON endpoint, ask the same question without changing the model:
+
+```sh
+svrn mesh app fanout chores /tasks --json
+```
+
+The rail carries the request and attribution. Your app decides how to combine
+the answers. It does not merge them for you, because only your app knows
+whether two records mean the same thing.
+
+## Second demo: media that nobody copies
+
+Media is the easiest example because everyone understands a film library. Each
+person keeps Jellyfin on their own disk. Add a media origin to the `[iroh]`
+section that already exists in the config:
 
 ```toml
 [iroh]
 enabled = true
-media_origin = "127.0.0.1:8096"    # Jellyfin's default port
+media_origin = "127.0.0.1:8096"
 ```
 
-Add the line to the `[iroh]` section you already have. Do not append a second
-`[iroh]` header — TOML rejects the duplicate and the daemon will not boot. Then:
+Then restart that member's daemon:
 
 ```sh
 svrn daemon restart
-svrn mesh media       # the house appears
 ```
 
-A restart, not a reload: `iroh.media_origin` is one of the fields a running
-daemon reports as restart-required, because the acceptor binds its routes at
-startup.
-
-The reason media has its own route is that a published app is reached under a
-name and gets that name stripped from the path, while a media origin is bridged
-whole with no prefix at all. Jellyfin's web UI emits absolute asset paths and
-would break behind a prefix; unprefixed, it is Jellyfin's own API unmodified.
-The bridge copies bytes and never parses HTTP, so range requests pass through
-and seeking works as if the library were local. That is the trade for the
-special case: one origin per machine, no name, exact bytes.
-
-`svrn mesh media` lists every member offering a media origin without dialing any
-of them. Missing people have not added the line or have not restarted.
-
-## Ask the whole house at once
+Check the bridge before setting up any API key:
 
 ```sh
-svrn mesh media fanout /System/Info/Public
-svrn mesh app fanout chores /tasks
+python3 library.py check
 ```
 
-One request reaches every member publishing that thing, over its own encrypted
-connection, and you get one attributed row back per person.
-`/System/Info/Public` is Jellyfin's unauthenticated info endpoint, so it answers
-before anyone sets up a key — run it first.
-
-Then pick someone:
+Build the house list and see who holds each title:
 
 ```sh
-svrn mesh media alex           # a localhost URL reaching Alex's Jellyfin
-svrn mesh app alex chores      # same, for a published app
+python3 library.py list
 ```
 
-Open either in a browser or point VLC at the first one.
-
-Then unplug the router's WAN and do all of it again.
-
-## Some machines are off, and that is normal
-
-This is the part that takes longest to get used to, and it is the only genuinely
-new habit here. A member who cannot answer comes back as a row saying why, never
-as silence — asleep, no such origin, connection refused. Your code renders that
-row beside the eleven answers it did get; it does not raise.
-
-Cloud engineering trains you to treat a partial answer as an incident. Here it
-is Tuesday, because laptops close.
-
-## The one thing the substrate will not do
-
-Fan-out returns what each member said, by member, and stops. It does not merge,
-dedupe, or impose a schema, because merging means knowing what an item IS — and
-that is Jellyfin's business, or Plex's, or whatever you run next year. The
-system stops one step short on purpose, and the step it left is yours.
-
-`library.py` is that step for the media case: merge by IMDb id, print who has
-what. Titles more than one person holds list every holder, so you play from
-whoever is awake.
+Play from a particular person's disk:
 
 ```sh
-python3 library.py check      # no auth needed, proves the mesh works
-python3 library.py list       # the merged library
-python3 library.py play <peer> <item-id>
+python3 library.py play <person> <item-id>
 ```
 
-Ninety lines, and about forty of them are the merge. That ratio is the argument.
+Nothing was copied to a central server. The list is the union of what members
+already have, and playback comes from whichever member holds the file. If one
+person's laptop is asleep, the other titles still work.
 
-## Your key stays on your machine
-
-Jellyfin API keys are per-server, so passing them around a house is the wrong
-shape: twenty-five people each holding twenty-four other people's credentials.
-
-Declare your own key once, on your own machine. Your daemon adds it to requests
-on their way to *your* Jellyfin, on your side of the wire, after the caller has
-been admitted as a member. Nobody else holds it. A viewer who sends a token of
-their own has it discarded — yours displaces theirs, so exactly one reaches your
-server and it is the one you chose.
+`library.py` is intentionally the media-friendly interface. Underneath it asks
+each media origin the same question. For a new application, use the generic
+form instead:
 
 ```sh
-# Dashboard -> API Keys in Jellyfin, then:
+svrn mesh app fanout <app-name> <path>
+```
+
+Media has a separate viewer command because players such as Jellyfin need an
+unmodified, unprefixed HTTP origin for absolute asset paths and byte-range
+seeking. That special case should not become the shape every application has
+to learn.
+
+## Your key stays with you
+
+Jellyfin has its own API keys. Do not distribute twenty-four copies of your key
+around a house. Declare it once on the machine that owns that Jellyfin:
+
+```sh
 printf 'MediaBrowser Token="%s"' "$KEY" | svrn mesh media declare authorization
 svrn daemon restart
 ```
 
-`authorization` is the header name because it is the only one Jellyfin 12
-answers to. Probed 2026-09-12 against a live 12.0.0: `X-Emby-Token`,
-`X-MediaBrowser-Token` and `?api_key=` each returned 401 on `/Items`, only
-`Authorization` returned 200, and the OpenAPI document declares that one scheme
-and no other. On Jellyfin 10 the spelling is `x-emby-token` with the bare key.
-The declaration is a filename either way, so moving between them is a rename on
-the machine holding the key, not an upgrade everyone has to take.
+The value is read from stdin, stored privately on that machine, and added only
+on the way to that machine's own media server. A viewer never receives it.
 
-The value is read from stdin so it never lands in your shell history. It is
-stored 0600 and never printed back; `svrn mesh media declare --list` shows which
-headers are set, not what they are. None of it goes in `config.toml`, so the key
-never rides along with anything that gets shared, synced, backed up, or sent to
-a peer.
+For an always-on app, the durable form writes a config entry:
 
-## What to build next
+```sh
+svrn publish chores 5000
+svrn daemon restart
+```
 
-This is the part that decides whether any of the above was worth doing. If the
-only thing this house ever publishes is Jellyfin, then it was a media feature
-with a long README and you should say so.
+Use the ephemeral form, `svrn run --as ...`, for experiments. It leaves no
+stale entry behind when the process exits. See what the daemon actually
+publishes with:
 
-So: the chore rotation. The fridge inventory. The 3D printer queue that keeps
-root on his own printer. The board of what everyone is working on. Thirty lines
-of Flask reading one header, `svrn run --as it -- python app.py`, and a
-housemate looking at it ninety seconds later.
+```sh
+svrn publish
+```
 
-Everyone here has abandoned a side project at the OAuth step. That step is gone.
+Publishing an app does not publish media. App access and media access are
+separate choices.
+
+## Sharing knowledge is two separate choices
+
+The same ownership rule applies to documents and local AI:
+
+- **May someone ask a question and receive a cited answer?** That is
+  `query_sharing`.
+- **May the underlying index bytes be copied to their machine?** That is
+  `mesh_sharing`.
+
+You can let housemates search a licensed collection while keeping its files on
+your disk. You can keep a private collection invisible to the mesh. Sharing an
+answer is not the same as handing over the cabinet.
+
+## What this gives up
+
+This is not a cloud with a better logo. You give up some cloud assumptions:
+
+- A laptop is not always on. Keep one always-on peer for services that must
+  answer at 4am.
+- There is no universal username. Names belong to a trusted group, so two
+  groups may both have an Alex.
+- There is no automatic application merge. The app author writes the small
+  piece that understands their records.
+- There is no single administrator who can silently remove somebody. Membership
+  changes follow the group's consent mechanism.
+
+In return, the house does not need to copy every file into one person's box or
+make every side project pass through an OAuth tutorial.
+
+## The hardware-mesh boundary
+
+This repository demonstrates the Commonwealth house mesh on its own. Using
+lightning-mesh as the underlying network is the intended composition, but it is
+not something this README should pretend is finished.
+
+The open engineering questions are:
+
+- Does the lightning-mesh daemon expose its iroh endpoint or an ALPN registration
+  hook, so both systems can share one network identity?
+- How should service discovery cross routed mesh segments without forwarding
+  link-local multicast?
+- How do we stop a large model download from making a neighbor's film buffer?
+
+The safe rule is simple: being reachable through the hardware mesh must never
+grant permission to use a Commonwealth app, media server, or GPU. Reachability
+answers "can I try this door?" Membership and cryptographic admission answer
+"may I enter?"
+
+## The real test
+
+Media is the wedge, not the point. The point is the next app:
+
+- a chore rotation;
+- a fridge inventory;
+- a 3D-printer queue that keeps root on its owner's machine;
+- a house knowledge helper that works with the WAN unplugged;
+- something someone writes at 1am and shares ninety seconds later.
+
+If only Jellyfin works, this is a media feature with a mesh around it. If
+someone else writes a small non-media app and it works, the substrate has done
+its job.
 
 ## If something is wrong
 
-Nobody in `svrn mesh media` or `svrn mesh app` means they have not published
-anything or have not restarted their daemon; `svrn mesh status` shows who is in
-the mesh at all, which separates the two. A row saying the member offers no
-origin is the same thing seen from the other side. A `failed` row means their
-machine is off or their server is not running — normal, and your code should
-render it rather than raise. `svrn publish` with no arguments, run on their
-machine, is the fastest way for someone to see what they are actually offering.
-If `svrn` is not found, the installer puts binaries in `~/.local/bin`; add it to
-your `PATH`. Everything else: `svrn doctor`.
+`svrn mesh status` shows who is in the mesh. `svrn mesh app` with no arguments
+shows who publishes apps. `svrn mesh media` shows who offers media. A member
+missing from the latter two lists has not published that kind of service or has
+not restarted after changing config.
 
----
+A `never_asked` or `failed` row is an explicit reason, such as no matching
+origin, a sleeping machine, or a refused connection. Render it; do not turn it
+into silence. If the daemon is not running:
 
-*Pre-release software. It will have rough edges; tell us which ones.*
+```sh
+svrn daemon start
+svrn doctor
+```
+
+This is pre-release software. The useful thing to report is the smallest step
+where the workshop stopped feeling simple.
