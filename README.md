@@ -130,7 +130,7 @@ App names are not gossiped, so a member that publishes something else answers
 answer is not an error to hide: laptops close. A house app should render
 partial answers rather than pretending an absent machine said nothing.
 
-For a JSON endpoint, ask the same question without changing the model:
+For a JSON route, ask the same question without changing the model:
 
 ```sh
 svrn mesh app fanout chores /tasks --json
@@ -238,7 +238,7 @@ answer is not the same as handing over the cabinet.
 
 This is not a cloud with a better logo. You give up some cloud assumptions:
 
-- A laptop is not always on. Keep one always-on peer for services that must
+- A laptop is not always on. Keep one always-on machine for services that must
   answer at 4am.
 - There is no universal username. Names belong to a trusted group, so two
   groups may both have an Alex.

@@ -8,7 +8,7 @@ render rather than something that breaks you.
 
     python3 library.py check                 # no API keys needed
     python3 library.py list
-    python3 library.py play <peer> <item-id>
+    python3 library.py play <person> <item-id>
 
 Rewrite this. It is an example, not a library.
 """
@@ -93,12 +93,12 @@ def library():
     return have, absent
 
 
-def play(peer, item_id):
+def play(person, item_id):
     """A localhost URL that streams it straight off that person's disk."""
-    out = subprocess.run(["svrn", "mesh", "media", peer, "--json"],
+    out = subprocess.run(["svrn", "mesh", "media", person, "--json"],
                          capture_output=True, text=True)
     if out.returncode != 0:
-        sys.exit(out.stderr.strip() or f"couldn't reach {peer}")
+        sys.exit(out.stderr.strip() or f"couldn't reach {person}")
     return f"{json.loads(out.stdout)['url']}/Videos/{item_id}/stream?static=true"
 
 
