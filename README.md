@@ -1,45 +1,33 @@
 # house-mesh
 
-Your laptop stays your laptop. The people you trust can reach the things you
-choose to share, by name, with their verified identity already attached.
+A house full of laptops, and each one has something worth sharing: a chore
+list, a Jellyfin library, a printer queue. The usual answers are a server
+someone has to run, or a cloud account that owns the data and wants everyone to
+log in.
 
-No central cabinet for everyone's files. No port forwarding. No VPN. No login
-page. No deploy step.
+This is the other answer. Each app stays on the laptop that runs it. The
+people in your mesh reach it by name, and it sees who is asking without a login
+page, because the daemon already checked. There's no port forwarding, no VPN,
+and no deploy step.
 
-This is a small example of a larger idea:
+The mesh carries requests and proves identity. Your app owns its data and
+decides what it means. That split is the whole idea, and the two scripts in
+this repository are small enough to read in one sitting:
 
-- **Commonwealth is the trusted messenger and shared notebook.** It checks who
-  is asking, carries requests, and keeps the group's record consistent.
-- **Your app is your workbench.** It owns its data and decides what that data
-  means. A chore list, media server, printer queue, or experiment can use the
-  same messenger.
+- `chores.py` — an app that says hello to each housemate by name.
+- `library.py` — asks every housemate's Jellyfin the same question and merges
+  the answers into one list.
 
-The word **rail** means the dependable shared software channel underneath the
-apps. It is not another physical network. The point is to make the shared
-workshop a normal place to run an app, not a special remote-inference feature.
+## Set up the mesh
 
-Four ways in, depending on what you came for:
-
-- **Run something a housemate published** — the five-minute setup below, then
-  `svrn mesh app <person> chores`.
-- **Publish your own** — `chores.py` in this repository is the whole app; run it
-  with `svrn run --as chores -- python3 chores.py` and edit the task list.
-- **Merge everyone's collections** — `library.py` asks each media server the same
-  question; `python3 library.py list`.
-- **Go under the pattern** — the three headers in the first demo are the seam:
-  any HTTP server on localhost plus those headers is a house app.
-
-## See the idea in five minutes
-
-Install the same prebuilt `svrn` command on each machine. Nothing is built from
-source.
+Install `svrn` on each machine. It's a prebuilt binary; nothing is compiled.
 
 ```sh
 curl -fsSL https://svrnme.sh/install.sh | sh
 ```
 
-**One machine founds the mesh.** If the house will also share inference, make it
-the machine with the GPU; otherwise any always-on box will do.
+One machine founds the mesh. If the house will share inference too, make it the
+one with the GPU; otherwise any always-on box will do.
 
 ```sh
 svrn setup
@@ -47,56 +35,49 @@ svrn mesh create
 svrn mesh rotate                    # read the join key out to the room
 ```
 
-**Everyone else joins.** If the house shares inference, the first block above is
-the GPU box; everyone else downloads no model files and routes inference to it:
+Everyone else joins. If the house shares inference, point at the GPU box and
+skip downloading any model files:
 
 ```sh
 svrn setup --terminal http://<the-gpu-box>:9741
 svrn mesh join '<the join key>'
 ```
 
-Already joined? Skip to the first demo. The app and media demos keep working
-when the GPU box is down. The GPU is one workbench, not the house's central
-cabinet.
+Apps and media keep working when the GPU box is down. It's one machine among
+several, not the center of the house.
 
-## First demo: an app with no login page
+## An app with no login page
 
-From this repository's directory, start its tiny example on one laptop:
+From this directory, on one laptop:
 
 ```sh
 svrn run --as chores -- python3 chores.py
 ```
 
-The command runs the app, gives it a free localhost port, and publishes it only
-while it is running. No config file is changed and no daemon restart is needed.
-Ctrl-C stops the app and unpublishes it; nothing is left behind. The claim
-renews while the app runs and expires on its own if it cannot be renewed — one
-hour by default, `--ttl` to change it — so a crash cannot leave the house list
-showing an app that is gone.
+That runs the app on a free localhost port and publishes it for as long as it
+runs. No config changes, no daemon restart. Ctrl-C stops it and unpublishes
+it. The claim renews while the app is alive and expires on its own if it can't
+(an hour by default, `--ttl` to change it), so a crash can't leave a dead app
+on the house list.
 
-`chores.py` is the whole app: edit `TASKS`, restart the command, refresh the
-page.
+To change the chores, edit `TASKS` and run the command again.
 
-On another member's machine — `<publisher>` is the name `svrn mesh status`
-lists, or the first column of `svrn mesh app`:
+On someone else's machine:
 
 ```sh
 svrn mesh app <publisher> chores
 ```
 
-This prints a URL, probes it through the mesh, and is ready to paste into a
-browser. The URL is a tunnel port on YOUR machine that reaches the app on
-theirs — nothing was copied and no port was forwarded. The app is still running
-on the publisher's laptop.
+`<publisher>` is the name `svrn mesh status` shows. The command prints a URL,
+probes it, and hands it back ready for a browser. The URL is a local port on
+your machine that tunnels to the app on theirs. Nothing was copied.
 
-Your own machine cannot ask itself through the mesh: run that command against
-your own name and it answers `'…' is this node — its published app is already
-local`. That reply is a statement about the name, not a publication check — it
-comes back the same whether or not the app is running, and for an app nobody
-published. `svrn publish` is the local view (the app and its remaining
-lifetime); the other machine's command is the end-to-end proof.
+You can't reach your own app this way. Try it with your own name and it says
+`'…' is this node — its published app is already local`, whether or not the
+app is running. `svrn publish` shows what your machine is publishing; asking
+from another machine is the real test.
 
-The app sees the caller as ordinary HTTP headers:
+The app sees the caller as three HTTP headers:
 
 ```text
 X-Mesh-Member: Alex
@@ -104,32 +85,27 @@ X-Mesh-Node:   node-44ae7614
 X-Mesh-Pubkey: 8f2c…
 ```
 
-The caller did not provide these values. The daemon proved them during the
-connection handshake, removes any client-supplied copies, and adds the values
-it verified. That is why `chores.py` can say hello by name without a users table
-or OAuth flow. Curl the app directly on the machine that runs it and you get
-the fallback — `someone at this workbench` — because the headers are added in
-transit; the name appears only when the request comes through a housemate's
-bridge.
+The caller didn't send these. The daemon verified them during the handshake,
+strips any copies the client tried to send, and adds its own. That's how
+`chores.py` greets people by name without a users table. Curl it directly on
+the machine running it and you get `someone at this workbench` instead,
+because the headers are only added on the way through the mesh.
 
-The app still serves its own paths. A request for `chores /tasks` arrives at
-the app as `/tasks`, not `/chores/tasks`; use relative URLs for CSS and other
-assets.
+The app serves its own paths: a request for `chores /tasks` arrives as `/tasks`,
+not `/chores/tasks`. Use relative URLs for CSS and other assets.
 
-## The useful interface: one or everyone
+Any HTTP server on localhost that reads those headers is a house app. Nothing
+else is required.
 
-There are two questions, expressed by one app interface:
+## One person, or everyone
 
 ```sh
-# Reach one person's workbench.
-svrn mesh app <person> chores
-
-# Ask every member that publishes apps the same question.
-svrn mesh app fanout chores /
+svrn mesh app <person> chores       # one person's app
+svrn mesh app fanout chores /       # every member who publishes apps
 ```
 
-The second command returns one attributed row per member it asked. A row says
-what the app answered, or why it could not answer:
+The fanout returns one row per member it asked, with either the answer or the
+reason there isn't one:
 
 ```text
 /chores/ → 2 member(s) asked
@@ -137,174 +113,135 @@ what the app answered, or why it could not answer:
   Dave              node-44ae…     0 ms  failed — connection refused
 ```
 
-App names are not gossiped, so a member that publishes something else answers
-`404` here — a row, not a failure. And a row that says a machine could not
-answer is not an error to hide: laptops close. A house app should render
-partial answers rather than pretending an absent machine said nothing.
+App names aren't gossiped, so a member who publishes something else answers
+`404`. That's a row, not a failure. Neither is a machine that couldn't answer —
+laptops close. A house app should show partial results rather than pretend the
+missing machine had nothing to say.
 
-For a JSON route, ask the same question without changing the model:
+For a JSON route:
 
 ```sh
 svrn mesh app fanout chores /tasks --json
 ```
 
-The rail carries the request and attribution. Your app decides how to combine
-the answers. It does not merge them for you, because only your app knows
-whether two records mean the same thing.
+The mesh doesn't merge the answers for you. Only your app knows whether two
+records are the same thing.
 
-Both commands print the URL before the probe result; the probe line under it is
-the verdict, because the bridge answers even when the far side has no such app.
+Both commands print the URL first and the probe result under it. Read the probe
+line: the tunnel answers even when the far side has no such app.
 
-## Second demo: media that nobody copies
+## Media nobody copies
 
-Media is the easiest example because everyone understands a film library. Each
-person keeps Jellyfin on their own disk. Declare yours once — the command edits
-your config for you, comments intact, and refuses to leave a config that will
-not load:
+Each person keeps Jellyfin on their own disk. Declare yours once. The command
+edits your config in place, keeps its comments, and refuses to write a config
+that won't load:
 
 ```sh
 svrn mesh media origin 8096      # Jellyfin on this machine
-svrn daemon restart              # the config tier is read at start
+svrn daemon restart              # config is read at start
 ```
 
-Check the bridge before setting up any API key:
+Then:
 
 ```sh
-python3 library.py check
-```
-
-Build the house list and see who holds each title:
-
-```sh
-python3 library.py list
-```
-
-Play from a particular person's disk:
-
-```sh
+python3 library.py check                   # is the bridge up? (no API key needed)
+python3 library.py list                    # every title, and who holds it
 python3 library.py play <person> <item-id>
 ```
 
-Nothing was copied to a central server. The list is the union of what members
-already have, and playback comes from whichever member holds the file. If one
-person's laptop is asleep, the other titles still work.
+The list is the union of what people already have, and playback streams from
+whoever holds the file. If someone's laptop is asleep, everything else still
+plays.
 
-`library.py` is intentionally the media-friendly interface. Underneath it asks
-each media origin the same question. For a new application, use the generic
-form instead:
+Media gets its own command because players like Jellyfin need an unmodified
+HTTP origin for absolute asset paths and range requests. Anything that isn't a
+media player should use `svrn mesh app fanout <app-name> <path>` instead.
 
-```sh
-svrn mesh app fanout <app-name> <path>
-```
+### Your Jellyfin key stays on your machine
 
-Media has a separate viewer command because players such as Jellyfin need an
-unmodified, unprefixed HTTP origin for absolute asset paths and byte-range
-seeking. That special case should not become the shape every application has
-to learn.
-
-## Your key stays with you
-
-Jellyfin has its own API keys. Do not distribute twenty-four copies of your key
-around a house. Declare it once on the machine that owns that Jellyfin:
+Don't hand your Jellyfin API key to everyone in the house. Declare it once on
+the machine that runs that Jellyfin:
 
 ```sh
 printf 'MediaBrowser Token="%s"' "$KEY" | svrn mesh media declare authorization
 svrn daemon restart
 ```
 
-The value is read from stdin, stored privately on that machine, and added only
-on the way to that machine's own media server. A viewer never receives it.
+It's read from stdin, stored privately, and added only to requests headed for
+your own media server. Nobody who watches from your library ever sees it.
 
-For an always-on app, the durable form writes a config entry:
+## Publishing for good
+
+`svrn run --as` is for experiments. For an app that should always be
+reachable, write a config entry:
 
 ```sh
 svrn publish chores 5000
 svrn daemon restart
 ```
 
-The entry declares where the app answers; it does not start anything, so the
-app itself still has to be running on that port. Use the ephemeral form,
-`svrn run --as ...`, for experiments. It leaves no stale entry behind when the
-process exits. See what the daemon actually publishes with:
+The entry says where the app answers; it doesn't start the app, so something
+still has to be listening on port 5000. `svrn publish` on its own lists what
+the daemon is publishing.
 
-```sh
-svrn publish
-```
+Publishing an app doesn't publish your media, and the reverse. They're separate
+choices.
 
-Publishing an app does not publish media. App access and media access are
-separate choices.
+## Sharing knowledge
 
-## Sharing knowledge is two separate choices
+Documents and local AI follow the same rule, as two settings:
 
-The same ownership rule applies to documents and local AI:
+- `query_sharing` — may someone ask a question and get a cited answer?
+- `mesh_sharing` — may the index itself be copied to their machine?
 
-- **May someone ask a question and receive a cited answer?** That is
-  `query_sharing`.
-- **May the underlying index bytes be copied to their machine?** That is
-  `mesh_sharing`.
+So you can let housemates search a licensed collection without the files
+leaving your disk, or keep a private collection out of the mesh entirely.
 
-You can let housemates search a licensed collection while keeping its files on
-your disk. You can keep a private collection invisible to the mesh. Sharing an
-answer is not the same as handing over the cabinet.
+## Reaching a machine isn't permission to use it
 
-## What this gives up
+Whatever carries the packets — home wifi, a radio link between buildings, a
+VPN — being able to reach a machine never means being allowed to use its
+services. Membership is checked cryptographically before your app sees a byte,
+so a stranger who can route to your laptop is still turned away.
 
-This is not a cloud with a better logo. You give up some cloud assumptions:
+To narrow one app to specific people, list member names or node-id prefixes in
+`[iroh] app_allow`. Empty, the default, means every member.
 
-- A laptop is not always on. Keep one always-on machine for services that must
+## What you give up
+
+- Laptops aren't always on. Keep one machine running for anything that has to
   answer at 4am.
-- There is no universal username. Names belong to a trusted group, so two
-  groups may both have an Alex.
-- There is no automatic application merge. The app author writes the small
-  piece that understands their records.
-- There is no single administrator who can silently remove somebody. Membership
-  changes follow the group's consent mechanism.
-
-In return, the house does not need to copy every file into one person's box or
-make every side project pass through an OAuth tutorial.
-
-## Reachability is not permission
-
-Whatever physical network carries the packets — home wifi, a radio link between
-buildings, a VPN — being able to reach a machine must never be the same thing as
-being allowed to use its services. Reachability answers "can I try this door?"
-Membership and cryptographic admission answer "may I enter?" The two are kept
-separate on purpose, and the app you write inherits the separation for free: a
-stranger who can route to your laptop is still refused before your server sees a
-byte. To narrow one app to named people, `[iroh] app_allow` lists member names
-or node-id prefixes; empty — the default — is every member.
+- Names belong to a group, not the world. Two meshes can both have an Alex.
+- Nobody merges your records for you. The app author writes that part.
+- No one administrator can quietly remove somebody. Membership changes go
+  through the group.
 
 ## The real test
 
-Media is the wedge, not the point. The point is the next app:
-
-- a chore rotation;
-- a fridge inventory;
-- a 3D-printer queue that keeps root on its owner's machine;
-- a house knowledge helper that works with the WAN unplugged;
-- something someone writes at 1am and shares ninety seconds later.
+Media is the easy case. The question is whether the next app works: a chore
+rotation, a fridge inventory, a 3D-printer queue that keeps root on its owner's
+machine, a house knowledge helper that works with the internet unplugged,
+something someone writes at 1am and shares ninety seconds later.
 
 If only Jellyfin works, this is a media feature with a mesh around it. If
-someone else writes a small non-media app and it works, the substrate has done
-its job.
+someone else writes a small app and it just works, the mesh did its job.
 
-## If something is wrong
+## When something's wrong
 
 `svrn mesh status` shows who is in the mesh. `svrn mesh app` with no arguments
-shows the OTHER members publishing apps; `svrn mesh media` shows who offers
-media. A member missing from those lists has not published that kind of service
-or has not restarted after changing config. Your own name does not appear in
-them — they are the view of everyone else; `svrn publish` is the view of
-yourself.
+lists other members publishing apps; `svrn mesh media` lists who offers media.
+Neither includes you — `svrn publish` is your own view. If someone is missing,
+they either haven't published that kind of service or haven't restarted since
+changing their config.
 
-A `never_asked` or `failed` row is an explicit reason, such as no matching
-origin, a sleeping machine, or a refused connection. Render it; do not turn it
-into silence. If the daemon is not running:
+A `never_asked` or `failed` row always carries a reason: no matching origin, a
+sleeping machine, a refused connection. Show it to the user rather than hiding
+it. If the daemon isn't running:
 
 ```sh
 svrn daemon start
 svrn doctor
 ```
 
-This is pre-release software. The useful thing to report is the smallest step
-where the workshop stopped feeling simple.
+This is pre-release software. The most useful bug report is the smallest step
+where it stopped feeling simple.
