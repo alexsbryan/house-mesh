@@ -20,17 +20,28 @@ The word **rail** means the dependable shared software channel underneath the
 apps. It is not another physical network. The point is to make the shared
 workshop a normal place to run an app, not a special remote-inference feature.
 
+Four ways in, depending on what you came for:
+
+- **Run something a housemate published** — the five-minute setup below, then
+  `svrn mesh app <person> chores`.
+- **Publish your own** — `chores.py` in this repository is the whole app; run it
+  with `svrn run --as chores -- python3 chores.py` and edit the task list.
+- **Merge everyone's collections** — `library.py` asks each media server the same
+  question; `python3 library.py list`.
+- **Go under the pattern** — the three headers in the first demo are the seam:
+  any HTTP server on localhost plus those headers is a house app.
+
 ## See the idea in five minutes
 
-Install the same prebuilt `svrn` command on each machine. Nobody clones this
-repository or builds Rust.
+Install the same prebuilt `svrn` command on each machine. Nothing is built from
+source.
 
 ```sh
 curl -fsSL https://svrnme.sh/install.sh | sh
 ```
 
-For a house that will share inference, one person sets up the machine with the
-GPU:
+**One machine founds the mesh.** If the house will also share inference, make it
+the machine with the GPU; otherwise any always-on box will do.
 
 ```sh
 svrn setup
@@ -38,15 +49,17 @@ svrn mesh create
 svrn mesh rotate                    # read the join key out to the room
 ```
 
-Everyone else can use that machine for inference without downloading models:
+**Everyone else joins.** If the house shares inference, the first block above is
+the GPU box; everyone else downloads nothing and routes inference to it:
 
 ```sh
 svrn setup --terminal http://<the-gpu-box>:9741
 svrn mesh join '<the join key>'
 ```
 
-The app and media demos keep working when the GPU box is down. The GPU is one
-workbench, not the house's central cabinet.
+Already joined? Skip to the first demo. The app and media demos keep working
+when the GPU box is down. The GPU is one workbench, not the house's central
+cabinet.
 
 ## First demo: an app with no login page
 
@@ -58,6 +71,7 @@ svrn run --as chores -- python3 chores.py
 
 The command runs the app, gives it a free localhost port, and publishes it only
 while it is running. No config file is changed and no daemon restart is needed.
+Ctrl-C stops the app and unpublishes it; nothing is left behind.
 
 On another member's machine:
 
@@ -67,6 +81,11 @@ svrn mesh app <publisher> chores
 
 This prints a URL, probes it through the mesh, and is ready to paste into a
 browser. The app is still running on the publisher's laptop.
+
+Your own machine cannot ask itself through the mesh: run that command against
+your own name and it answers `'…' is this node — its published app is already
+local`. `svrn publish` is the local view — the app and its remaining lifetime —
+and the other machine's command is the end-to-end proof.
 
 The app sees the caller as ordinary HTTP headers:
 
@@ -93,20 +112,22 @@ There are two questions, expressed by one app interface:
 # Reach one person's workbench.
 svrn mesh app <person> chores
 
-# Ask every publisher of that workbench the same question.
+# Ask every member that publishes apps the same question.
 svrn mesh app fanout chores /
 ```
 
-The second command returns one attributed row per publisher. A row says what
-the app answered, or why it could not answer:
+The second command returns one attributed row per member it asked. A row says
+what the app answered, or why it could not answer:
 
 ```text
-Alex    served       200
-Mira    served       200
-Dave    never_asked  laptop asleep
+/chores/ → 2 member(s) asked
+  Alex              node-1f2e…    41 ms  200 1204B  application/json
+  Dave              node-44ae…     0 ms  failed — connection refused
 ```
 
-That last row is not an error to hide. Laptops close. A house app should render
+App names are not gossiped, so a member that publishes something else answers
+`404` here — a row, not a failure. And a row that says a machine could not
+answer is not an error to hide: laptops close. A house app should render
 partial answers rather than pretending an absent machine said nothing.
 
 For a JSON endpoint, ask the same question without changing the model:
@@ -119,22 +140,19 @@ The rail carries the request and attribution. Your app decides how to combine
 the answers. It does not merge them for you, because only your app knows
 whether two records mean the same thing.
 
+Both commands print the URL before the probe result; the probe line under it is
+the verdict, because the bridge answers even when the far side has no such app.
+
 ## Second demo: media that nobody copies
 
 Media is the easiest example because everyone understands a film library. Each
-person keeps Jellyfin on their own disk. Add a media origin to the `[iroh]`
-section that already exists in the config:
-
-```toml
-[iroh]
-enabled = true
-media_origin = "127.0.0.1:8096"
-```
-
-Then restart that member's daemon:
+person keeps Jellyfin on their own disk. Declare yours once — the command edits
+your config for you, comments intact, and refuses to leave a config that will
+not load:
 
 ```sh
-svrn daemon restart
+svrn mesh media origin 8096      # Jellyfin on this machine
+svrn daemon restart              # the config tier is read at start
 ```
 
 Check the bridge before setting up any API key:
@@ -232,24 +250,15 @@ This is not a cloud with a better logo. You give up some cloud assumptions:
 In return, the house does not need to copy every file into one person's box or
 make every side project pass through an OAuth tutorial.
 
-## The hardware-mesh boundary
+## Reachability is not permission
 
-This repository demonstrates the Commonwealth house mesh on its own. Using
-lightning-mesh as the underlying network is the intended composition, but it is
-not something this README should pretend is finished.
-
-The open engineering questions are:
-
-- Does the lightning-mesh daemon expose its iroh endpoint or an ALPN registration
-  hook, so both systems can share one network identity?
-- How should service discovery cross routed mesh segments without forwarding
-  link-local multicast?
-- How do we stop a large model download from making a neighbor's film buffer?
-
-The safe rule is simple: being reachable through the hardware mesh must never
-grant permission to use a Commonwealth app, media server, or GPU. Reachability
-answers "can I try this door?" Membership and cryptographic admission answer
-"may I enter?"
+Whatever physical network carries the packets — home wifi, a radio link between
+buildings, a VPN — being able to reach a machine must never be the same thing as
+being allowed to use its services. Reachability answers "can I try this door?"
+Membership and cryptographic admission answer "may I enter?" The two are kept
+separate on purpose, and the app you write inherits the separation for free: a
+stranger who can route to your laptop is still refused before your server sees a
+byte.
 
 ## The real test
 
@@ -268,9 +277,11 @@ its job.
 ## If something is wrong
 
 `svrn mesh status` shows who is in the mesh. `svrn mesh app` with no arguments
-shows who publishes apps. `svrn mesh media` shows who offers media. A member
-missing from the latter two lists has not published that kind of service or has
-not restarted after changing config.
+shows the OTHER members publishing apps; `svrn mesh media` shows who offers
+media. A member missing from those lists has not published that kind of service
+or has not restarted after changing config. Your own name does not appear in
+them — they are the view of everyone else; `svrn publish` is the view of
+yourself.
 
 A `never_asked` or `failed` row is an explicit reason, such as no matching
 origin, a sleeping machine, or a refused connection. Render it; do not turn it
