@@ -8,8 +8,6 @@ page. No deploy step.
 
 This is a small example of a larger idea:
 
-- **The hardware mesh is the workshop's hallways.** Routers and wireless links
-  let machines in different rooms reach one another.
 - **Commonwealth is the trusted messenger and shared notebook.** It checks who
   is asking, carries requests, and keeps the group's record consistent.
 - **Your app is your workbench.** It owns its data and decides what that data
