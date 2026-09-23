@@ -50,7 +50,7 @@ svrn mesh rotate                    # read the join key out to the room
 ```
 
 **Everyone else joins.** If the house shares inference, the first block above is
-the GPU box; everyone else downloads nothing and routes inference to it:
+the GPU box; everyone else downloads no model files and routes inference to it:
 
 ```sh
 svrn setup --terminal http://<the-gpu-box>:9741
@@ -63,7 +63,7 @@ cabinet.
 
 ## First demo: an app with no login page
 
-Start this repository's tiny example on one laptop:
+From this repository's directory, start its tiny example on one laptop:
 
 ```sh
 svrn run --as chores -- python3 chores.py
@@ -71,21 +71,32 @@ svrn run --as chores -- python3 chores.py
 
 The command runs the app, gives it a free localhost port, and publishes it only
 while it is running. No config file is changed and no daemon restart is needed.
-Ctrl-C stops the app and unpublishes it; nothing is left behind.
+Ctrl-C stops the app and unpublishes it; nothing is left behind. The claim
+renews while the app runs and expires on its own if it cannot be renewed — one
+hour by default, `--ttl` to change it — so a crash cannot leave the house list
+showing an app that is gone.
 
-On another member's machine:
+`chores.py` is the whole app: edit `TASKS`, restart the command, refresh the
+page.
+
+On another member's machine — `<publisher>` is the name `svrn mesh status`
+lists, or the first column of `svrn mesh app`:
 
 ```sh
 svrn mesh app <publisher> chores
 ```
 
 This prints a URL, probes it through the mesh, and is ready to paste into a
-browser. The app is still running on the publisher's laptop.
+browser. The URL is a tunnel port on YOUR machine that reaches the app on
+theirs — nothing was copied and no port was forwarded. The app is still running
+on the publisher's laptop.
 
 Your own machine cannot ask itself through the mesh: run that command against
 your own name and it answers `'…' is this node — its published app is already
-local`. `svrn publish` is the local view — the app and its remaining lifetime —
-and the other machine's command is the end-to-end proof.
+local`. That reply is a statement about the name, not a publication check — it
+comes back the same whether or not the app is running, and for an app nobody
+published. `svrn publish` is the local view (the app and its remaining
+lifetime); the other machine's command is the end-to-end proof.
 
 The app sees the caller as ordinary HTTP headers:
 
@@ -98,7 +109,10 @@ X-Mesh-Pubkey: 8f2c…
 The caller did not provide these values. The daemon proved them during the
 connection handshake, removes any client-supplied copies, and adds the values
 it verified. That is why `chores.py` can say hello by name without a users table
-or OAuth flow.
+or OAuth flow. Curl the app directly on the machine that runs it and you get
+the fallback — `someone at this workbench` — because the headers are added in
+transit; the name appears only when the request comes through a housemate's
+bridge.
 
 The app still serves its own paths. A request for `chores /tasks` arrives at
 the app as `/tasks`, not `/chores/tasks`; use relative URLs for CSS and other
@@ -210,9 +224,10 @@ svrn publish chores 5000
 svrn daemon restart
 ```
 
-Use the ephemeral form, `svrn run --as ...`, for experiments. It leaves no
-stale entry behind when the process exits. See what the daemon actually
-publishes with:
+The entry declares where the app answers; it does not start anything, so the
+app itself still has to be running on that port. Use the ephemeral form,
+`svrn run --as ...`, for experiments. It leaves no stale entry behind when the
+process exits. See what the daemon actually publishes with:
 
 ```sh
 svrn publish
@@ -258,7 +273,8 @@ being allowed to use its services. Reachability answers "can I try this door?"
 Membership and cryptographic admission answer "may I enter?" The two are kept
 separate on purpose, and the app you write inherits the separation for free: a
 stranger who can route to your laptop is still refused before your server sees a
-byte.
+byte. To narrow one app to named people, `[iroh] app_allow` lists member names
+or node-id prefixes; empty — the default — is every member.
 
 ## The real test
 
